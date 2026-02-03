@@ -2,16 +2,32 @@
 import { Logo } from "@images";
 import Image from "next/image";
 import Link from "next/link";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import dynamic from "next/dynamic";
 import { Home, Info, Menu, Mail, FileText } from "lucide-react";
 import { useState } from "react";
 import { Button } from "./ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
+import { useWalletLoading } from "@/providers/ClientWalletProvider";
+
+// Dynamically import the wallet button to avoid SSR issues
+const WalletMultiButton = dynamic(
+  () => import("@solana/wallet-adapter-react-ui").then((mod) => mod.WalletMultiButton),
+  { 
+    ssr: false,
+    loading: () => (
+      <Button variant="outline" disabled className="min-w-[150px]">
+        Loading...
+      </Button>
+    )
+  }
+);
 
 type Props = {};
 
 const Header = (props: Props) => {
   const [showSidebar, setShowSidebar] = useState<boolean>(false);
+  const { isLoading } = useWalletLoading();
+  
   return (
     <header className="sticky top-0 z-10 flex justify-between w-full gap-8 px-4 py-2 bg-background font-monsterr">
       <Image src={Logo} alt="PRNT" width={50} height={50} />
@@ -88,7 +104,12 @@ const Header = (props: Props) => {
             </Link>
           </nav>
 
-          <WalletMultiButton />
+          {!isLoading && <WalletMultiButton />}
+          {isLoading && (
+            <Button variant="outline" disabled className="min-w-[150px]">
+              Loading...
+            </Button>
+          )}
 
           <Sheet open={showSidebar} onOpenChange={setShowSidebar}>
             <SheetTrigger asChild>

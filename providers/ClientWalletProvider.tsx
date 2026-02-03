@@ -1,43 +1,92 @@
-import { clusterApiUrl } from "@solana/web3.js";
-import { FC, ReactNode, useCallback, useMemo } from "react";
-import { WalletAdapterNetwork, WalletError } from "@solana/wallet-adapter-base";
-import {
-  ConnectionProvider,
-  WalletProvider,
-} from "@solana/wallet-adapter-react";
-import { WalletModalProvider as ReactUIWalletModalProvider } from "@solana/wallet-adapter-react-ui";
-import {
-  PhantomWalletAdapter,
-  SolflareWalletAdapter,
-  TorusWalletAdapter,
-} from "@solana/wallet-adapter-wallets";
+"use client";
 
-const WalletContextProvider: FC<{ children: ReactNode }> = ({ children }) => {
-  const network = WalletAdapterNetwork.Devnet;
-  const endpoint = useMemo(() => clusterApiUrl(network), [network]);
+import { FC, ReactNode, useCallback, useMemo, useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 
-  const wallets = useMemo(
-    () => [
-      new PhantomWalletAdapter(),
-      new SolflareWalletAdapter(),
-      new TorusWalletAdapter(),
-    ],
-    [network]
-  );
+// Create a context to provide wallet functionality even when not loaded
+import { createContext, useContext } from "react";
 
-  const onError = useCallback((error: WalletError) => {
-    // notify({ type: 'error', message: error.message ? `${error.name}: ${error.message}` : error.name });
+const WalletLoadingContext = createContext<{ isLoading: boolean }>({ isLoading: true });
+
+export const useWalletLoading = () => useContext(WalletLoadingContext);
+
+// Dynamically import Solana wallet components to avoid SSR issues
+const WalletProviderInner: FC<{ children: ReactNode }> = ({ children }) => {
+  const [mounted, setMounted] = useState(false);
+  const [WalletComponents, setWalletComponents] = useState<{
+    ConnectionProvider: any;
+    WalletProvider: any;
+    WalletModalProvider: any;
+    wallets: any[];
+    endpoint: string;
+  } | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+    
+    // Dynamically import all Solana wallet dependencies
+    const loadWalletDeps = async () => {
+      try {
+        const [
+          { clusterApiUrl },
+          { WalletAdapterNetwork },
+          { ConnectionProvider, WalletProvider },
+          { WalletModalProvider },
+          { PhantomWalletAdapter, SolflareWalletAdapter, TorusWalletAdapter }
+        ] = await Promise.all([
+          import("@solana/web3.js"),
+          import("@solana/wallet-adapter-base"),
+          import("@solana/wallet-adapter-react"),
+          import("@solana/wallet-adapter-react-ui"),
+          import("@solana/wallet-adapter-wallets")
+        ]);
+
+        const network = WalletAdapterNetwork.Devnet;
+        const endpoint = clusterApiUrl(network);
+        const wallets = [
+          new PhantomWalletAdapter(),
+          new SolflareWalletAdapter(),
+          new TorusWalletAdapter(),
+        ];
+
+        setWalletComponents({
+          ConnectionProvider,
+          WalletProvider,
+          WalletModalProvider,
+          wallets,
+          endpoint
+        });
+      } catch (error) {
+        console.error("Failed to load wallet dependencies:", error);
+      }
+    };
+
+    loadWalletDeps();
+  }, []);
+
+  const onError = useCallback((error: Error) => {
     console.error(error);
   }, []);
 
+  if (!mounted || !WalletComponents) {
+    return (
+      <WalletLoadingContext.Provider value={{ isLoading: true }}>
+        {children}
+      </WalletLoadingContext.Provider>
+    );
+  }
+
+  const { ConnectionProvider, WalletProvider, WalletModalProvider, wallets, endpoint } = WalletComponents;
+
   return (
-    // TODO: updates needed for updating and referencing endpoint: wallet adapter rework
-    <ConnectionProvider endpoint={endpoint}>
-      <WalletProvider wallets={wallets} onError={onError} autoConnect>
-        <ReactUIWalletModalProvider>{children}</ReactUIWalletModalProvider>
-      </WalletProvider>
-    </ConnectionProvider>
+    <WalletLoadingContext.Provider value={{ isLoading: false }}>
+      <ConnectionProvider endpoint={endpoint}>
+        <WalletProvider wallets={wallets} onError={onError} autoConnect>
+          <WalletModalProvider>{children}</WalletModalProvider>
+        </WalletProvider>
+      </ConnectionProvider>
+    </WalletLoadingContext.Provider>
   );
 };
 
-export default WalletContextProvider;
+export default WalletProviderInner;
